@@ -6,22 +6,80 @@ import sys
 import os
 from scipy import interpolate, optimize, integrate
 import logging
-
-sys.path.append(os.path.abspath('../describing_function'))
-from DF_num import Crawler
 import pyomo.environ as pyo
 from pyomo.dae import ContinuousSet, DerivativeVar
 my_path = os.path.abspath(__file__)
 print("This is the name of the program:", sys.argv[0])
-"""
-This case is only for uncoupled, undamped case
-"""
+
+class Crawler:
+    mass: float  # kg
+    k: float  # N/m
+    c: float  # Ns/m
+    u_bar: float  # N
+    fric_max: float  # N
+    delta: float  # asymmetric friction coefficient
+    omega_n: float  # natural frequency
+    omega: float  # frequency of the external force
+
+    theta1: float  # phase of the first segment
+    theta2: float  # phase of the second segment
+
+    pi_u: float  # non-dimensionalized external force
+    pi_f: float  # non-dimensionalized friction force
+    zeta: float  # damping ratio
+
+    a: float  # ratio of DC term and sinusoidal term of DF
+    v_bar: float  # DC term of the DF
+    v_tilde: float  # sinusoidal term of the DF
+
+    A: float  # amplitude of strain
+    phi: float  # phase of the strain
+
+    u: np.ndarray  # external force trajectory
+
+    x1: np.ndarray  # displacement trajectory of the first segment
+    x2: np.ndarray  # displacement trajectory of the second segment
+    x1_dot: np.ndarray  # velocity trajectory of the first segment
+    x2_dot: np.ndarray  # velocity trajectory of the second segment
+    x1_ddot: np.ndarray  # acceleration trajectory of the first segment
+    x2_ddot: np.ndarray  # acceleration trajectory of the second segment
+
+    x1_dyn: np.ndarray  # displacement trajectory of the first segment from dynamics
+    x2_dyn: np.ndarray  # displacement trajectory of the second segment from dynamics
+    x1_dot_dyn: np.ndarray  # velocity trajectory of the first segment from dynamics
+    x2_dot_dyn: np.ndarray  # velocity trajectory of the second segment from dynamics
+
+    strain: np.ndarray  # strain trajectory
+    strain_dot: np.ndarray  # strain velocity trajectory
+    strain_ddot: np.ndarray  # strain acceleration trajectory
+
+    g = 9.81  # m/s^2
+
+    def __init__(self, mass, l, k, c, u_bar, fric_max, delta, omega):
+        self.mass = mass
+        self.L = l
+        self.k = k
+        self.c = c
+        self.u_bar = u_bar
+        self.fric_max = fric_max
+        self.delta = delta
+        self.omega_n = np.sqrt(2 * k / mass)
+        self.omega = omega
+        logging.debug("Crawler object created")
+
+    def nondimensionalize(self):
+        self.pi_u = self.u_bar / (self.k * self.L)
+        self.pi_f = self.fric_max / (self.k * self.L)
+        self.zeta = self.c / (np.sqrt(2 * self.mass * self.k))
+        logging.debug("Non-dimensionalized")
+
+
 m = 1
 k = 0.1 # 0.1 LS, 0.09 ZS
 c = 0.1 # 0.1 LS, 0.11 ZS
 l = 0.1
 
-ratio = np.linspace(0.1, 10, 20)
+# ratio = np.linspace(0.1, 10, 20)
 # omega = float(sys.argv[1]) # 1 0.45
 omega = np.sqrt(2*k/m)
 
@@ -243,11 +301,9 @@ def eval_cost(t, u, z1, z2):
 
 
 #
-lam1 = 2
+lam1 = 1
 t = np.linspace(0, T, int(T * 100000))
 u = 1*np.sin(omega * t)
-# u = np.load("result_f.npy")
-# t = np.linspace(0, T, len(u))
 plt.plot(t,u)
 f = interpolate.interp1d(t, u, fill_value="extrapolate")
 print(t)
@@ -256,22 +312,6 @@ my_opt = Optimization(t, u, 1)
 
 
 u, z3, z4, p1, p2, cost = my_opt.optimization_main(0.02, 1000)
-# # u, z3, z4, p1, p2 = my_opt.optimization_main(0.004, 100)
-# # u, z3, z4, p1, p2 = my_opt.optimization_main(0.001, 100)
-# plt.plot(my_opt.t, u)
-# plt.plot(my_opt.t, z3)
-# plt.plot(my_opt.t, z4)
-# plt.plot(my_opt.t, p1)
-# plt.plot(my_opt.t, p2)
-# plt.savefig("test4.png")
-# np.savetxt("u_opt.txt",my_opt.u)
-# np.savetxt("t.txt", my_opt.t)
-
-# u = np.loadtxt("u_opt.txt")
-# my_opt.t = np.loadtxt("t.txt")
-# my_opt = Optimization(my_opt.t, u, 1)
-# u, z3, z4, p1, p2 = my_opt.optimization_main(0.02, 1000)
-
 f  = interpolate.interp1d(my_opt.t, u, fill_value = "extrapolate")
 
 
@@ -283,7 +323,6 @@ plt.plot(m_state.t, z[0])
 plt.plot(m_state.t, z[1])
 plt.plot(m_state.t, z[2])
 plt.plot(m_state.t, z[3])
-# plt.plot(m_state.t, np.array(z[2])+np.array(z[3]))
 plt.plot(m_state.t, p1)
 plt.plot(m_state.t, p2)
 plt.plot(m_state.t, (p1+p2)/2)
@@ -313,12 +352,8 @@ plt.plot(m_costate.t, lam[0], label = "costate 1")
 plt.plot(m_costate.t, lam[1], label = "costate 2")
 plt.plot(m_costate.t, lam[2], label = "costate 3")
 plt.plot(m_costate.t, lam[3], label = "costate 4")
-# plt.plot(m_costate.t, pi_u*np.array(lam[2])-pi_u*np.array(lam[3]), label = "update (only energy term)")
-# plt.plot(m_costate.t, pi_u*np.array(lam[2])-pi_u*np.array(lam[3])-2*alpha*f(t), label = "update (w/o strain)")
 plt.legend()
 plt.savefig(f"./result/FINALandcostate omega {omega} k {k} alpha {alpha}.png")
-# print(list(m_costate.t))
-# print(f(t))
 plt.clf()
 plt.plot(t, f(t))
 print(eval_cost(t, f(t), p1 - p2, p1 + p2))
